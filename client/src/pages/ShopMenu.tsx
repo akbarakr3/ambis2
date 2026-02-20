@@ -1,20 +1,42 @@
 import { useState } from "react";
-import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@/hooks/use-products";
-import { ProductCard } from "@/components/ProductCard";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "../hooks/use-products";
+import { ProductCard } from "../components/ProductCard";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Label } from "../components/ui/label";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertProductSchema, InsertProduct, Product } from "@shared/schema";
 import { Plus } from "lucide-react";
 import { z } from "zod";
+
+// Local type definitions
+export interface Product {
+  id: number;
+  name: string;
+  description?: string;
+  price: number | string;
+  category?: string;
+  imageUrl?: string;
+  inStock?: boolean;
+}
+
+export type InsertProduct = Omit<Product, "id">;
+
+const insertProductSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  price: z.coerce.number().positive("Price must be positive"),
+  quantity: z.coerce.number().nonnegative("Quantity must be non-negative").optional(),
+  category: z.string().optional(),
+  imageUrl: z.string().optional(),
+});
 
 // Need to handle decimal coercing for the form
 const formSchema = insertProductSchema.extend({
   price: z.coerce.number(),
+  quantity: z.coerce.number().optional(),
 });
 
 export default function ShopMenu() {
@@ -31,6 +53,7 @@ export default function ShopMenu() {
       name: "",
       description: "",
       price: 0,
+      quantity: 0,
       category: "main",
       imageUrl: "",
       isAvailable: true,
@@ -57,6 +80,7 @@ export default function ShopMenu() {
       name: product.name,
       description: product.description,
       price: Number(product.price),
+      quantity: product.quantity || 0,
       category: product.category,
       imageUrl: product.imageUrl || "",
       isAvailable: product.isAvailable,
@@ -70,6 +94,7 @@ export default function ShopMenu() {
       name: "",
       description: "",
       price: 0,
+      quantity: 0,
       category: "main",
       imageUrl: "",
       isAvailable: true,
@@ -105,18 +130,28 @@ export default function ShopMenu() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Price</Label>
+                  <Label>Price (₹)</Label>
                   <Input type="number" step="0.01" {...form.register("price")} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Category</Label>
-                  <Input {...form.register("category")} placeholder="e.g. snacks, drinks" />
+                  <Label>Quantity Available</Label>
+                  <Input type="number" min="0" {...form.register("quantity")} />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Input {...form.register("category")} placeholder="e.g. snacks, drinks" />
               </div>
               <div className="space-y-2">
                 <Label>Image URL</Label>
                 <Input {...form.register("imageUrl")} placeholder="https://..." />
               </div>
+              {editingProduct?.imageUrl && (
+                <div className="mt-2">
+                  <Label className="text-xs">Current Image Preview</Label>
+                  <img src={editingProduct.imageUrl} alt={editingProduct.name} className="h-24 w-full object-cover rounded-md mt-1" />
+                </div>
+              )}
               <Button type="submit" className="w-full" disabled={createProduct.isPending || updateProduct.isPending}>
                 {createProduct.isPending || updateProduct.isPending ? "Saving..." : "Save Product"}
               </Button>

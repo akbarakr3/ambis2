@@ -7,17 +7,6 @@ export default defineConfig({
   plugins: [
     react(),
     runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
   ],
   resolve: {
     alias: {
@@ -33,8 +22,15 @@ export default defineConfig({
   },
   server: {
     fs: {
-      strict: true,
-      deny: ["**/.*"],
+    strict: true,
+    deny: ["**/.*"],
+  },
+  middlewareMode: false,
+  proxy: {
+    "/api": {
+      target: "http://localhost:5000", // ⚠️ change if backend uses different port
+      changeOrigin: true,
     },
   },
+},
 });

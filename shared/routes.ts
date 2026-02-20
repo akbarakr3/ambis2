@@ -95,6 +95,24 @@ export const api = {
       },
     },
   },
+  analytics: {
+    summary: {
+      method: 'GET' as const,
+      path: '/api/analytics/summary',
+      responses: {
+        200: z.object({
+          totalSales: z.number(),
+          totalOrders: z.number(),
+          averageOrderValue: z.number(),
+          salesByDay: z.array(z.object({
+            date: z.string(),
+            sales: z.number(),
+            orders: z.number()
+          }))
+        }),
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {

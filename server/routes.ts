@@ -5,18 +5,28 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import MemoryStore from "memorystore";
 import bcrypt from "bcryptjs";
 import { insertProductSchema } from "@shared/schema";
 
 // Session setup for custom auth
 function setupSession(app: Express) {
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
-    createTableIfMissing: true,
-    ttl: 7 * 24 * 60 * 60,
-    tableName: "sessions",
-  });
+  let sessionStore: any;
+  
+  // Use PostgreSQL session store if DATABASE_URL is set, otherwise use memory store
+  if (process.env.DATABASE_URL) {
+    const pgStore = connectPg(session);
+    sessionStore = new pgStore({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+      ttl: 7 * 24 * 60 * 60,
+      tableName: "sessions",
+    });
+  } else {
+    // Fallback to memory store for development
+    const memStore = MemoryStore(session);
+    sessionStore = new memStore({ checkPeriod: 86400000 });
+  }
 
   app.use(session({
     secret: process.env.SESSION_SECRET!,
@@ -229,6 +239,39 @@ export async function registerRoutes(
     });
   });
 
+  // Change Password
+  app.post("/api/auth/change-password", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req.session as any).user;
+      const { oldPassword, newPassword } = z.object({
+        oldPassword: z.string().min(1),
+        newPassword: z.string().min(1)
+      }).parse(req.body);
+
+      if (user.role !== 'admin') {
+        return res.status(403).json({ message: "Only admins can change password" });
+      }
+
+      const admin = await storage.getAdminByMobile(user.mobile);
+      if (!admin) {
+        return res.status(404).json({ message: "Admin not found" });
+      }
+
+      const isValid = await bcrypt.compare(oldPassword, admin.password);
+      if (!isValid) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateAdminPassword(admin.id, hashedPassword);
+
+      res.json({ success: true, message: "Password changed successfully" });
+    } catch (err) {
+      console.error(err);
+      res.status(400).json({ message: "Invalid request" });
+    }
+  });
+
   // --- Products ---
 
   app.get(api.products.list.path, async (req, res) => {
@@ -252,7 +295,7 @@ export async function registerRoutes(
 
   app.put(api.products.update.path, isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id));
       const input = api.products.update.input.parse(req.body);
       const updated = await storage.updateProduct(id, input);
       if (!updated) return res.status(404).json({ message: "Product not found" });
@@ -268,7 +311,7 @@ export async function registerRoutes(
 
   app.delete(api.products.delete.path, isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id));
       await storage.deleteProduct(id);
       res.status(204).send();
     } catch (err) {
@@ -288,7 +331,7 @@ export async function registerRoutes(
   });
 
   app.get(api.orders.get.path, isAuthenticated, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id));
     const order = await storage.getOrder(id);
     if (!order) return res.status(404).json({ message: "Order not found" });
     
@@ -314,7 +357,7 @@ export async function registerRoutes(
 
   app.patch(api.orders.updateStatus.path, isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id));
       const input = api.orders.updateStatus.input.parse(req.body);
       const updated = await storage.updateOrderStatus(id, input.status, input.paymentStatus);
       if (!updated) return res.status(404).json({ message: "Order not found" });
@@ -331,34 +374,41 @@ export async function registerRoutes(
 }
 
 async function seedDatabase() {
-  const existing = await storage.getProducts();
-  if (existing.length === 0) {
-    console.log("Seeding database with products...");
-    const products = [
-      { name: "Veg Sandwich", description: "Fresh vegetables with cheese", price: "45.00", category: "Snacks", isAvailable: true },
-      { name: "Chicken Burger", description: "Crispy chicken patty with lettuce", price: "80.00", category: "Main", isAvailable: true },
-      { name: "Cold Coffee", description: "Chilled coffee with ice cream", price: "60.00", category: "Beverages", isAvailable: true },
-      { name: "Samosa", description: "Spicy potato filling", price: "15.00", category: "Snacks", isAvailable: true },
-      { name: "Fried Rice", description: "Veg fried rice with sauces", price: "70.00", category: "Main", isAvailable: true },
-      { name: "Masala Dosa", description: "Crispy dosa with potato filling", price: "55.00", category: "Main", isAvailable: true },
-      { name: "Tea", description: "Hot masala chai", price: "15.00", category: "Beverages", isAvailable: true },
-      { name: "Pani Puri", description: "6 pieces of crispy puri with spicy water", price: "25.00", category: "Snacks", isAvailable: true },
-    ];
-    
-    for (const p of products) {
-      await storage.createProduct(p as any);
+  try {
+    const existing = await storage.getProducts();
+    if (existing.length === 0) {
+      console.log("Seeding database with products...");
+      const products = [
+        { name: "Veg Sandwich", description: "Fresh vegetables with cheese", price: "45.00", category: "Snacks", isAvailable: true },
+        { name: "Chicken Burger", description: "Crispy chicken patty with lettuce", price: "80.00", category: "Main", isAvailable: true },
+        { name: "Cold Coffee", description: "Chilled coffee with ice cream", price: "60.00", category: "Beverages", isAvailable: true },
+        { name: "Samosa", description: "Spicy potato filling", price: "15.00", category: "Snacks", isAvailable: true },
+        { name: "Fried Rice", description: "Veg fried rice with sauces", price: "70.00", category: "Main", isAvailable: true },
+        { name: "Masala Dosa", description: "Crispy dosa with potato filling", price: "55.00", category: "Main", isAvailable: true },
+        { name: "Tea", description: "Hot masala chai", price: "15.00", category: "Beverages", isAvailable: true },
+        { name: "Pani Puri", description: "6 pieces of crispy puri with spicy water", price: "25.00", category: "Snacks", isAvailable: true },
+      ];
+      
+      for (const p of products) {
+        await storage.createProduct(p as any);
+      }
     }
-  }
 
-  // Seed default admin with hashed password
-  const existingAdmin = await storage.getAdminByMobile("9999999999");
-  if (!existingAdmin) {
-    console.log("Seeding default admin...");
-    const hashedPassword = await bcrypt.hash("admin123", 10);
-    await storage.createAdmin({
-      mobile: "9999999999",
-      password: hashedPassword,
-      name: "Ambi"
-    });
+    // Seed default admin with hashed password
+    const existingAdmin = await storage.getAdminByMobile("9999999999");
+    if (!existingAdmin) {
+      console.log("Seeding default admin...");
+      const hashedPassword = await bcrypt.hash("admin123", 10);
+      await storage.createAdmin({
+        mobile: "9999999999",
+        password: hashedPassword,
+        name: "Ambi"
+      });
+    }
+  } catch (err) {
+    // Silently fail for SQLite development mode - tables don't exist but auth still works
+    if (process.env.DATABASE_URL) {
+      console.error("Seeding failed:", err);
+    }
   }
 }

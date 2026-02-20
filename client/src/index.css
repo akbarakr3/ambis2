@@ -97,3 +97,19 @@
 .glass-card {
   @apply bg-card/50 backdrop-blur-sm border border-border/50 shadow-sm hover:shadow-md transition-all duration-300;
 }
+
+/* Animations */
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.animate-fadeOut {
+  animation: fadeOut 0.5s ease-out forwards;
+  animation-delay: 1.5s;
+}

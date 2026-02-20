@@ -1,30 +1,48 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl } from "@shared/routes";
-import { CreateOrderRequest, Order } from "@shared/schema";
+
+// Local type definitions
+export interface Order {
+  id: number;
+  status: "pending" | "confirmed" | "completed" | "cancelled";
+  studentName?: string;
+  items?: Array<{
+    productId: number;
+    quantity: number;
+    price: number;
+  }>;
+  // match server response
+  totalAmount: number;
+  paymentStatus: string;
+  paymentMethod?: string;
+  createdAt: string;
+  orderType?: string;
+}
+
+export type CreateOrderRequest = Omit<Order, "id" | "status">;
+
+const jsonHeaders = { "Content-Type": "application/json" };
 
 export function useOrders() {
   return useQuery({
-    queryKey: [api.orders.list.path],
+    queryKey: ["orders"],
     queryFn: async () => {
-      const res = await fetch(api.orders.list.path, { credentials: "include" });
+      const res = await fetch("/api/orders", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch orders");
-      // Note: The response is typed as any[] in manifest currently due to complex relation types
-      // In a real scenario, we'd define the Zod schema for the relation properly.
-      return await res.json();
+      const data = (await res.json()) as Order[];
+      return (data || []).filter((o) => o.orderType !== "manual");
     },
   });
 }
 
 export function useOrder(id: number | null) {
   return useQuery({
-    queryKey: [api.orders.get.path, id],
+    queryKey: ["order", id],
     enabled: !!id,
     queryFn: async () => {
       if (!id) return null;
-      const url = buildUrl(api.orders.get.path, { id });
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(`/api/orders/${id}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch order");
-      return await res.json();
+      return (await res.json()) as Order;
     },
   });
 }
@@ -33,36 +51,42 @@ export function useCreateOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: CreateOrderRequest) => {
-      const res = await fetch(api.orders.create.path, {
-        method: api.orders.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create order");
-      return api.orders.create.responses[201].parse(await res.json());
+      if (res.status === 201) return (await res.json()) as Order;
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.message || "Failed to create order");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.orders.list.path] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders"] }),
   });
 }
 
 export function useUpdateOrderStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status, paymentStatus }: { id: number, status: string, paymentStatus?: string }) => {
-      const url = buildUrl(api.orders.updateStatus.path, { id });
-      const res = await fetch(url, {
-        method: api.orders.updateStatus.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, paymentStatus }),
+    mutationFn: async ({ id, status, paymentStatus }: { id: number; status: string; paymentStatus?: string }) => {
+      const updates: any = { status };
+      if (paymentStatus) updates.paymentStatus = paymentStatus;
+      const res = await fetch(`/api/orders/${id}`, {
+        method: "PUT",
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update order status");
-      return api.orders.updateStatus.responses[200].parse(await res.json());
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || "Failed to update order");
+      }
+      const data = (await res.json()) as Order;
+      return data as Order;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.orders.get.path, data.id] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["order", data.id] });
     },
   });
 }

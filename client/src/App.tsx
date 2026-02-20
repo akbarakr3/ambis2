@@ -1,66 +1,40 @@
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { CartProvider } from "@/hooks/use-cart";
-import { useAuth } from "@/hooks/use-auth";
-import { Navigation } from "@/components/Navigation";
-import NotFound from "@/pages/not-found";
+import { useState, useEffect } from "react";
+import { SplashScreen } from "./components/SplashScreen";
+import { CartProvider } from "./hooks/use-cart";
 
 // Pages
-import Login from "@/pages/Login";
-import Menu from "@/pages/Menu";
-import Cart from "@/pages/Cart";
-import OrderSuccess from "@/pages/OrderSuccess";
-import StudentOrders from "@/pages/StudentOrders";
-import ShopDashboard from "@/pages/ShopDashboard";
-import ShopMenu from "@/pages/ShopMenu";
-import ShopScanner from "@/pages/ShopScanner";
+import Login from "./pages/Login";
+import ShopDashboard from "./pages/ShopDashboard";
+import ShopMenu from "./pages/ShopMenu";
+import ShopScanner from "./pages/ShopScanner";
 
 function PrivateRoute({ component: Component, ...rest }: any) {
-  const { user, isLoading } = useAuth();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-background"><div className="animate-spin h-8 w-8 border-2 border-primary rounded-full border-t-transparent" /></div>;
+  useEffect(() => {
+    const user = localStorage.getItem("mockUser");
+    setIsLoggedIn(!!user);
+    setIsLoading(false);
+  }, []);
 
-  if (!user) return <Redirect to="/" />;
-
+  if (isLoading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin h-8 w-8 border-2 border-primary rounded-full border-t-transparent" /></div>;
+  if (!isLoggedIn) return <Redirect to="/" />;
   return <Component {...rest} />;
 }
 
-import { Intro } from "@/components/Intro";
-import { useState, useEffect } from "react";
-
 function Router() {
-  const [showIntro, setShowIntro] = useState(true);
-
-  if (showIntro) {
-    return <Intro onComplete={() => setShowIntro(false)} />;
-  }
-
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Navigation />
       <main className="flex-1">
         <Switch>
           <Route path="/" component={Login} />
           <Route path="/login" component={Login} />
           
-          {/* Student Routes */}
-          <Route path="/menu">
-            <PrivateRoute component={Menu} />
-          </Route>
-          <Route path="/cart">
-            <PrivateRoute component={Cart} />
-          </Route>
-          <Route path="/orders">
-            <PrivateRoute component={StudentOrders} />
-          </Route>
-          <Route path="/orders/:id/success">
-            <PrivateRoute component={OrderSuccess} />
-          </Route>
-
-          {/* Shopkeeper Routes */}
+          {/* Admin Routes */}
           <Route path="/shop">
             <PrivateRoute component={ShopDashboard} />
           </Route>
@@ -71,7 +45,9 @@ function Router() {
             <PrivateRoute component={ShopScanner} />
           </Route>
 
-          <Route component={NotFound} />
+          <Route>
+            {() => <Redirect to="/" />}
+          </Route>
         </Switch>
       </main>
     </div>
@@ -79,14 +55,14 @@ function Router() {
 }
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <CartProvider>
-          <Router />
-          <Toaster />
-        </CartProvider>
-      </TooltipProvider>
+      <CartProvider>
+        {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+        <Router />
+      </CartProvider>
     </QueryClientProvider>
   );
 }

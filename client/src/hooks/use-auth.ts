@@ -8,24 +8,29 @@ export interface User {
   role: 'student' | 'admin';
 }
 
+const jsonHeaders = { "Content-Type": "application/json" };
+
 async function fetchUser(): Promise<User | null> {
-  const response = await fetch("/api/auth/me", {
-    credentials: "include",
-  });
-
-  if (response.status === 401) {
-    return null;
+  try {
+    const res = await fetch("/api/auth/me", { credentials: "include" });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.error("Failed to fetch user:", err);
   }
-
-  if (!response.ok) {
-    throw new Error(`${response.status}: ${response.statusText}`);
-  }
-
-  return response.json();
+  return null;
 }
 
 async function logout(): Promise<void> {
-  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.error("Logout failed:", err);
+  }
 }
 
 export function useAuth() {
@@ -60,12 +65,15 @@ export function useSendOtp() {
     mutationFn: async (mobile: string) => {
       const res = await fetch("/api/auth/send-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile }),
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify({ mobile }),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.message || "Failed to send OTP");
+      }
+      return await res.json();
     },
   });
 }
@@ -76,12 +84,15 @@ export function useVerifyOtp() {
     mutationFn: async ({ mobile, otp }: { mobile: string; otp: string }) => {
       const res = await fetch("/api/auth/verify-otp", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile, otp }),
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify({ mobile, otp }),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.message || "Invalid OTP");
+      }
+      return await res.json();
     },
     onSuccess: (data) => {
       queryClient.setQueryData(["/api/auth/me"], data.user);
@@ -95,17 +106,18 @@ export function useAdminLogin() {
     mutationFn: async ({ mobile, password, otp }: { mobile: string; password: string; otp?: string }) => {
       const res = await fetch("/api/auth/admin-login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile, password, otp }),
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify({ mobile, password, otp }),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.message || "Invalid credentials");
+      }
+      return await res.json();
     },
     onSuccess: (data) => {
-      if (!data.otpRequired) {
-        queryClient.setQueryData(["/api/auth/me"], data.user);
-      }
+      queryClient.setQueryData(["/api/auth/me"], data.user);
     },
   });
 }
@@ -116,15 +128,43 @@ export function useUpdateProfile() {
     mutationFn: async (data: { email?: string; name?: string }) => {
       const res = await fetch("/api/auth/update-profile", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.message || "Failed to update profile");
+      }
+      return await res.json();
     },
     onSuccess: (data) => {
       queryClient.setQueryData(["/api/auth/me"], data.user);
     },
   });
 }
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async ({
+      oldPassword,
+      newPassword,
+    }: {
+      oldPassword: string;
+      newPassword: string;
+    }) => {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: jsonHeaders,
+        credentials: "include",
+        body: JSON.stringify({ oldPassword, newPassword }),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error?.message || "Failed to change password");
+      }
+      return await res.json();
+    },
+  });
+}
+

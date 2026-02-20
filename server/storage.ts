@@ -8,7 +8,7 @@ import {
   type Admin, type InsertAdmin
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Products
@@ -23,6 +23,14 @@ export interface IStorage {
   getOrder(id: number): Promise<OrderWithItems | undefined>;
   createOrder(userId: string, order: CreateOrderRequest): Promise<Order>;
   updateOrderStatus(id: number, status: string, paymentStatus?: string): Promise<Order | undefined>;
+
+  // Analytics
+  getAnalytics(startDate?: Date, endDate?: Date): Promise<{
+    totalSales: number;
+    totalOrders: number;
+    averageOrderValue: number;
+    salesByDay: { date: string; sales: number; orders: number }[];
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -75,7 +83,7 @@ export class DatabaseStorage implements IStorage {
       
       results.push({
         ...order,
-        items: items.map(i => ({ ...i.item, product: i.product! }))
+        items: items.map((i: any) => ({ ...i.item, product: i.product! }))
       });
     }
     
@@ -96,12 +104,12 @@ export class DatabaseStorage implements IStorage {
 
     return {
       ...order,
-      items: items.map(i => ({ ...i.item, product: i.product! }))
+      items: items.map((i: any) => ({ ...i.item, product: i.product! }))
     };
   }
 
   async createOrder(userId: string, request: CreateOrderRequest): Promise<Order> {
-    return await db.transaction(async (tx) => {
+    return await db.transaction(async (tx: any) => {
       let total = 0;
       
       // Calculate total and verify products
@@ -146,6 +154,66 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orders.id, id))
       .returning();
     return updated;
+  }
+
+  async getAnalytics(startDate?: Date, endDate?: Date): Promise<{
+    totalSales: number;
+    totalOrders: number;
+    averageOrderValue: number;
+    salesByDay: { date: string; sales: number; orders: number }[];
+  }> {
+    // Build where clause for date filtering
+    let whereClause: any = eq(orders.status, 'completed');
+    
+    if (startDate && endDate) {
+      whereClause = and(
+        eq(orders.status, 'completed'),
+        gte(orders.createdAt, startDate),
+        lte(orders.createdAt, endDate)
+      );
+    } else if (startDate) {
+      whereClause = and(
+        eq(orders.status, 'completed'),
+        gte(orders.createdAt, startDate)
+      );
+    } else if (endDate) {
+      whereClause = and(
+        eq(orders.status, 'completed'),
+        lte(orders.createdAt, endDate)
+      );
+    }
+
+    // Get all completed orders within date range
+    const ordersList = await db.select().from(orders).where(whereClause);
+    
+    // Calculate totals
+    const totalSales = ordersList.reduce((sum: number, order: any) => sum + Number(order.totalAmount), 0);
+    const totalOrders = ordersList.length;
+    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+
+    // Group sales by day
+    const salesByDayMap = new Map<string, { sales: number; orders: number }>();
+    
+    for (const order of ordersList) {
+      const dateKey = order.createdAt?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0];
+      const existing = salesByDayMap.get(dateKey) || { sales: 0, orders: 0 };
+      salesByDayMap.set(dateKey, {
+        sales: existing.sales + Number(order.totalAmount),
+        orders: existing.orders + 1
+      });
+    }
+
+    // Convert to array and sort by date
+    const salesByDay = Array.from(salesByDayMap.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      totalSales,
+      totalOrders,
+      averageOrderValue,
+      salesByDay
+    };
   }
 
   // Student methods
@@ -200,6 +268,14 @@ export class DatabaseStorage implements IStorage {
   async createAdmin(data: InsertAdmin): Promise<Admin> {
     const [admin] = await db.insert(admins).values(data).returning();
     return admin;
+  }
+
+  async updateAdminPassword(id: number, hashedPassword: string): Promise<Admin | undefined> {
+    const [updated] = await db.update(admins)
+      .set({ password: hashedPassword })
+      .where(eq(admins.id, id))
+      .returning();
+    return updated;
   }
 }
 

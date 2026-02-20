@@ -1,6 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { Product } from "@shared/schema";
 import { useToast } from "./use-toast";
+
+export interface Product {
+  id: number;
+  name: string;
+  description?: string;
+  price: number | string;
+  category?: string;
+  imageUrl?: string;
+  inStock?: boolean;
+}
 
 type CartItem = Product & {
   quantity: number;

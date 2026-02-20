@@ -1,14 +1,28 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl } from "@shared/routes";
-import { InsertProduct, Product } from "@shared/schema";
+
+// Local type definitions
+export interface Product {
+  id: number;
+  name: string;
+  description?: string;
+  price: number | string;
+  quantity?: number;
+  category?: string;
+  imageUrl?: string;
+  inStock?: boolean;
+}
+
+export type InsertProduct = Omit<Product, "id">;
+
+const jsonHeaders = { "Content-Type": "application/json" };
 
 export function useProducts() {
   return useQuery({
-    queryKey: [api.products.list.path],
+    queryKey: ["products"],
     queryFn: async () => {
-      const res = await fetch(api.products.list.path, { credentials: "include" });
+      const res = await fetch("/api/products", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch products");
-      return api.products.list.responses[200].parse(await res.json());
+      return (await res.json()) as Product[];
     },
   });
 }
@@ -17,16 +31,17 @@ export function useCreateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: InsertProduct) => {
-      const res = await fetch(api.products.create.path, {
-        method: api.products.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create product");
-      return api.products.create.responses[201].parse(await res.json());
+      if (res.status === 201) return (await res.json()) as Product;
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.message || "Failed to create product");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.products.list.path] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
   });
 }
 
@@ -34,17 +49,19 @@ export function useUpdateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & Partial<InsertProduct>) => {
-      const url = buildUrl(api.products.update.path, { id });
-      const res = await fetch(url, {
-        method: api.products.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+      const res = await fetch(`/api/products/${id}`, {
+        method: "PUT",
+        headers: jsonHeaders,
         credentials: "include",
+        body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update product");
-      return api.products.update.responses[200].parse(await res.json());
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || "Failed to update product");
+      }
+      return (await res.json()) as Product;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.products.list.path] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
   });
 }
 
@@ -52,13 +69,14 @@ export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
-      const url = buildUrl(api.products.delete.path, { id });
-      const res = await fetch(url, { 
-        method: api.products.delete.method,
-        credentials: "include" 
+      const res = await fetch(`/api/products/${id}`, {
+        method: "DELETE",
+        credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to delete product");
+      if (res.status === 204) return { success: true };
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.message || "Failed to delete product");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.products.list.path] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["products"] }),
   });
 }
